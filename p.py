@@ -5,6 +5,7 @@ import os
 import glob
 import matplotlib.pyplot as plt
 import numpy as np
+from moviepy.editor import VideoFileClip
 
 def calibrateCamera(nx, ny, img_path, img_size):
     # prepare object points, like (0,0,0), (1,0,0), (2,0,0) ....,(6,9,0)
@@ -40,14 +41,14 @@ def undistort(img, mtx, dist):
     return cv2.undistort(img, mtx, dist, None, mtx)
 
 
-def warp_img(img, thresh_min, thresh_max, s_thresh_min, s_thresh_max):
-    hls = cv2.cvtColor(img, cv2.COLOR_RGB2HLS)
+def threshold_warp(img, M, thresh_min, thresh_max, s_thresh_min, s_thresh_max):
+    hls = cv2.cvtColor(img, cv2.COLOR_BGR2HLS)
     s_channel = hls[:,:,2]
 
     # Grayscale image
     # NOTE: we already saw that standard grayscaling lost color information for the lane lines
     # Explore gradients in other colors spaces / color channels to see what might work better
-    gray = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
+    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
 
     # Sobel x
     sobelx = cv2.Sobel(gray, cv2.CV_64F, 1, 0) # Take the derivative in x
@@ -62,18 +63,32 @@ def warp_img(img, thresh_min, thresh_max, s_thresh_min, s_thresh_max):
     s_binary = np.zeros_like(s_channel)
     s_binary[(s_channel >= s_thresh_min) & (s_channel <= s_thresh_max)] = 1
 
-    # Stack each channel to view their individual contributions in green and blue respectively
-    # This returns a stack of the two binary images, whose components you can see as different colors
-    color_binary = np.dstack((np.zeros_like(sxbinary), sxbinary, s_binary)) * 255
-
     # Combine the two binary thresholds
     combined_binary = np.zeros_like(sxbinary)
     combined_binary[(s_binary == 1) | (sxbinary == 1)] = 1
 
-    return cv2.warpPerspective(combined_binary, M, img_size[::-1])
+    warp_img = cv2.warpPerspective(combined_binary, M, combined_binary.shape[::-1])
+
+    # only for debug use
+    if False:
+        color_binary = np.dstack((np.zeros_like(sxbinary), sxbinary, s_binary)) * 255
+        # Plotting thresholded images
+        f, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize=(20,10))
+        ax1.set_title('Stacked thresholds')
+        ax1.imshow(color_binary)
+
+        ax2.set_title('Combined S channel and gradient thresholds')
+        ax2.imshow(combined_binary, cmap="gray")
+
+        ax3.set_title('warp')
+        ax3.imshow(warp_img, cmap="gray")
+        plt.show()
+
+    return warp_img
 
 
 def search_lane(binary_warped):
+
     # Assuming you have created a warped binary image called "binary_warped"
     # Take a histogram of the bottom half of the image
     histogram = np.sum(binary_warped[binary_warped.shape[0]//2:,:], axis=0)
@@ -133,7 +148,7 @@ def search_lane(binary_warped):
     leftx = nonzerox[left_lane_inds]
     lefty = nonzeroy[left_lane_inds] 
     rightx = nonzerox[right_lane_inds]
-    righty = nonzeroy[right_lane_inds] 
+    righty = nonzeroy[right_lane_inds]
 
     # Fit a second order polynomial to each
     left_fit = np.polyfit(lefty, leftx, 2)
@@ -175,10 +190,10 @@ def fast_search_lane(binary_warped, left_fit, right_fit):
     left_fitx = left_fit[0]*ploty**2 + left_fit[1]*ploty + left_fit[2]
     right_fitx = right_fit[0]*ploty**2 + right_fit[1]*ploty + right_fit[2]
 
-    return left_fit, right_fit, ploty
+    return left_fitx, right_fitx, ploty
 
 
-def reverse_project(left_fitx, right_fitx, ploty, binary_warped, img):
+def reverse_project(left_fitx, right_fitx, ploty, Minv, binary_warped, img):
     # Create an image to draw the lines on
     warp_zero = np.zeros_like(binary_warped).astype(np.uint8)
     color_warp = np.dstack((warp_zero, warp_zero, warp_zero))
@@ -197,10 +212,9 @@ def reverse_project(left_fitx, right_fitx, ploty, binary_warped, img):
     return cv2.addWeighted(img, 1, newwarp, 0.3, 0)
 
 
-def findPerspectiveM():
-    img = cv2.imread('test_images/straight_lines2.jpg') 
-    img = undistort(img, mtx, dist)
-    size = (img.shape[1], img.shape[0])
+def findPerspectiveM(img_size):
+    # Important!! size is (w, h)  img_size is (h, w)
+    size = img_size[::-1]
     src = np.float32(
         [[(size[0] / 2) - 60, size[1] / 2 + 100],
         [((size[0] / 6) - 10), size[1]],
@@ -240,16 +254,24 @@ class Line():
 
 def pipeline(img):
 
+    print('process..')
+
+    global pipeline_args
+    mtx = pipeline_args["mtx"]
+    dist = pipeline_args["dist"]
+    M = pipeline_args["M"]
+    Minv = pipeline_args["Minv"]
+
     img = undistort(img, mtx, dist)
 
     thresh_min = 18
     thresh_max = 100
     s_thresh_min = 170
     s_thresh_max = 255
-    binary_warped = warp_img(img, thresh_min, thresh_max, s_thresh_min, s_thresh_max)
+    binary_warped = threshold_warp(img, M, thresh_min, thresh_max, s_thresh_min, s_thresh_max)
 
-    search_lane(warped_img)
-    reverse_project()
+    left_fitx, right_fitx, ploty = search_lane(binary_warped)
+    return reverse_project(left_fitx, right_fitx, ploty, Minv, binary_warped, img)
 
 
 pipeline_args = dict()
@@ -262,30 +284,44 @@ def main():
         mtx = data['mtx']
         dist = data['dist']
     else:
-        mtx, dist = calibrateCamera(6, 9, 'camera_cal')
+        mtx, dist = calibrateCamera(6, 9, 'camera_cal', img_size)
         pickle.dump({"mtx": mtx, "dist": dist}, open('calibrate.pickle', 'wb'))
 
-    M, Minv = findPerspectiveM()
+    M, Minv = findPerspectiveM(img_size)
 
     pipeline_args["mtx"] = mtx
     pipeline_args["dist"] = dist
     pipeline_args["M"] = M
     pipeline_args["Minv"] = Minv
-    pipeline_args["img_size"] = img_size
-
-    out_img[nonzeroy[left_lane_inds], nonzerox[left_lane_inds]] = [255, 0, 0]
-    out_img[nonzeroy[right_lane_inds], nonzerox[right_lane_inds]] = [0, 0, 255]
-    plt.imshow(out_img)
-    plt.plot(left_fitx, ploty, color='yellow')
-    plt.plot(right_fitx, ploty, color='yellow')
-    plt.xlim(0, 1280)
-    plt.ylim(720, 0)
-    plt.show()
 
     easy_output = 'project_video_output.mp4'
     clip1 = VideoFileClip('project_video.mp4')
     easy_clip = clip1.fl_image(pipeline)
     easy_clip.write_videofile(easy_output, audio=False)
+
+def test():
+
+    img_size = (720, 1280)
+
+    if os.path.isfile('calibrate.pickle'):
+        data = pickle.load(open('calibrate.pickle', 'rb'))
+        mtx = data['mtx']
+        dist = data['dist']
+    else:
+        mtx, dist = calibrateCamera(6, 9, 'camera_cal', img_size)
+        pickle.dump({"mtx": mtx, "dist": dist}, open('calibrate.pickle', 'wb'))
+
+    M, Minv = findPerspectiveM(img_size)
+
+    pipeline_args["mtx"] = mtx
+    pipeline_args["dist"] = dist
+    pipeline_args["M"] = M
+    pipeline_args["Minv"] = Minv
+
+    img = cv2.imread('test_images/test3.jpg') 
+    result = pipeline(img)
+    plt.imshow(result)
+    plt.show()
 
 
 if __name__ == "__main__":
