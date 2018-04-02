@@ -40,7 +40,6 @@ def calibrateCamera(nx, ny, img_path, img_size):
 def undistort(img, mtx, dist):
     return cv2.undistort(img, mtx, dist, None, mtx)
 
-
 def threshold_warp(img, M, thresh_min, thresh_max, s_thresh_min, s_thresh_max):
     hls = cv2.cvtColor(img, cv2.COLOR_BGR2HLS)
     s_channel = hls[:,:,2]
@@ -300,9 +299,7 @@ def main():
     easy_clip.write_videofile(easy_output, audio=False)
 
 def test():
-
     img_size = (720, 1280)
-
     if os.path.isfile('calibrate.pickle'):
         data = pickle.load(open('calibrate.pickle', 'rb'))
         mtx = data['mtx']
