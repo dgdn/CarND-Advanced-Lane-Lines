@@ -309,7 +309,6 @@ def test():
         pickle.dump({"mtx": mtx, "dist": dist}, open('calibrate.pickle', 'wb'))
 
     M, Minv = findPerspectiveM(img_size)
-
     pipeline_args["mtx"] = mtx
     pipeline_args["dist"] = dist
     pipeline_args["M"] = M
