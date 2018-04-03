@@ -153,7 +153,7 @@ def search_lane(binary_warped):
     left_fitx = left_fit[0]*ploty**2 + left_fit[1]*ploty + left_fit[2]
     right_fitx = right_fit[0]*ploty**2 + right_fit[1]*ploty + right_fit[2]
 
-    return left_fitx, right_fitx, ploty, leftx, lefty, rightx, righty
+    return left_fitx, right_fitx, ploty
 
 def fast_search_lane(binary_warped, left_fit, right_fit):
     # Assume you now have a new warped binary image 
@@ -217,7 +217,7 @@ def calculateCurvature(left_fitx, right_fitx, ploty):
     # Fit new polynomials to x,y in world space
     left_fit_cr = np.polyfit(ploty*ym_per_pix, left_fitx*xm_per_pix, 2)
     right_fit_cr = np.polyfit(ploty*ym_per_pix, right_fitx*xm_per_pix, 2)
-    # Calculate the new radii of curvature
+    # Calculate the new radius of curvature
     left_curverad = ((1 + (2*left_fit_cr[0]*y_eval*ym_per_pix + left_fit_cr[1])**2)**1.5) / np.absolute(2*left_fit_cr[0])
     right_curverad = ((1 + (2*right_fit_cr[0]*y_eval*ym_per_pix + right_fit_cr[1])**2)**1.5) / np.absolute(2*right_fit_cr[0])
     # Now our radius of curvature is in meters
@@ -288,10 +288,10 @@ def pipeline(img):
 
     projected =  map_lane(left_fitx, right_fitx, ploty, Minv, binary_warped, undistorted)
 
-    tx = 100
-    ty = 100
-    text = "Left Curvature:{.2f}m Right Curvature:{.2f}".format(left_curvature, right_curvature)
-    final = cv2.putText(projected, text, (tx,ty), cv2.FONT_HERSHEY_SIMPLEX, 2, 255)
+    tx = 50
+    ty = 50
+    text = "Left Curvature:{:5.1f}m Right Curvature:{:5.1f}m".format(left_curvature, right_curvature)
+    final = cv2.putText(projected, text, (tx,ty), cv2.FONT_HERSHEY_SIMPLEX, 1, 255, 3)
 
     return final
 
@@ -338,7 +338,7 @@ def test():
 
     img = cv2.imread('test_images/test3.jpg') 
     result = pipeline(img)
-    plt.imshow(result)
+    plt.imshow(result[:,:,::-1])
     plt.show()
 
 
