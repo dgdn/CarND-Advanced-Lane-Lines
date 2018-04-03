@@ -40,7 +40,7 @@ def calibrateCamera(nx, ny, img_path, img_size):
 def undistort(img, mtx, dist):
     return cv2.undistort(img, mtx, dist, None, mtx)
 
-def threshold_warp(img, M, thresh_min, thresh_max, s_thresh_min, s_thresh_max):
+def threshold(img, thresh_min, thresh_max, s_thresh_min, s_thresh_max):
     hls = cv2.cvtColor(img, cv2.COLOR_BGR2HLS)
     s_channel = hls[:,:,2]
 
@@ -48,7 +48,6 @@ def threshold_warp(img, M, thresh_min, thresh_max, s_thresh_min, s_thresh_max):
     # NOTE: we already saw that standard grayscaling lost color information for the lane lines
     # Explore gradients in other colors spaces / color channels to see what might work better
     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-
     # Sobel x
     sobelx = cv2.Sobel(gray, cv2.CV_64F, 1, 0) # Take the derivative in x
     abs_sobelx = np.absolute(sobelx) # Absolute x derivative to accentuate lines away from horizontal
@@ -66,25 +65,21 @@ def threshold_warp(img, M, thresh_min, thresh_max, s_thresh_min, s_thresh_max):
     combined_binary = np.zeros_like(sxbinary)
     combined_binary[(s_binary == 1) | (sxbinary == 1)] = 1
 
-    warp_img = cv2.warpPerspective(combined_binary, M, combined_binary.shape[::-1])
-
     # only for debug use
     if False:
         color_binary = np.dstack((np.zeros_like(sxbinary), sxbinary, s_binary)) * 255
         # Plotting thresholded images
-        f, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize=(20,10))
+        f, (ax1, ax2) = plt.subplots(1, 3, figsize=(20,10))
         ax1.set_title('Stacked thresholds')
         ax1.imshow(color_binary)
 
         ax2.set_title('Combined S channel and gradient thresholds')
         ax2.imshow(combined_binary, cmap="gray")
 
-        ax3.set_title('warp')
-        ax3.imshow(warp_img, cmap="gray")
-        plt.show()
+    return combined_binary
 
-    return warp_img
-
+def warp(combined_binary, M):
+    return cv2.warpPerspective(combined_binary, M, combined_binary.shape[::-1])
 
 def search_lane(binary_warped):
 
@@ -158,7 +153,7 @@ def search_lane(binary_warped):
     left_fitx = left_fit[0]*ploty**2 + left_fit[1]*ploty + left_fit[2]
     right_fitx = right_fit[0]*ploty**2 + right_fit[1]*ploty + right_fit[2]
 
-    return left_fitx, right_fitx, ploty
+    return left_fitx, right_fitx, ploty, leftx, lefty, rightx, righty
 
 def fast_search_lane(binary_warped, left_fit, right_fit):
     # Assume you now have a new warped binary image 
@@ -192,7 +187,7 @@ def fast_search_lane(binary_warped, left_fit, right_fit):
     return left_fitx, right_fitx, ploty
 
 
-def reverse_project(left_fitx, right_fitx, ploty, Minv, binary_warped, img):
+def map_lane(left_fitx, right_fitx, ploty, Minv, binary_warped, img):
     # Create an image to draw the lines on
     warp_zero = np.zeros_like(binary_warped).astype(np.uint8)
     color_warp = np.dstack((warp_zero, warp_zero, warp_zero))
@@ -209,6 +204,24 @@ def reverse_project(left_fitx, right_fitx, ploty, Minv, binary_warped, img):
     newwarp = cv2.warpPerspective(color_warp, Minv, (img.shape[1], img.shape[0])) 
     # Combine the result with the original image
     return cv2.addWeighted(img, 1, newwarp, 0.3, 0)
+
+def calculateCurvature(left_fitx, right_fitx, ploty):
+    # Define y-value where we want radius of curvature
+    # I'll choose the maximum y-value, corresponding to the bottom of the image
+    y_eval = np.max(ploty)
+
+    # Define conversions in x and y from pixels space to meters
+    ym_per_pix = 30/720 # meters per pixel in y dimension
+    xm_per_pix = 3.7/700 # meters per pixel in x dimension
+
+    # Fit new polynomials to x,y in world space
+    left_fit_cr = np.polyfit(ploty*ym_per_pix, left_fitx*xm_per_pix, 2)
+    right_fit_cr = np.polyfit(ploty*ym_per_pix, right_fitx*xm_per_pix, 2)
+    # Calculate the new radii of curvature
+    left_curverad = ((1 + (2*left_fit_cr[0]*y_eval*ym_per_pix + left_fit_cr[1])**2)**1.5) / np.absolute(2*left_fit_cr[0])
+    right_curverad = ((1 + (2*right_fit_cr[0]*y_eval*ym_per_pix + right_fit_cr[1])**2)**1.5) / np.absolute(2*right_fit_cr[0])
+    # Now our radius of curvature is in meters
+    return left_curverad, right_curverad
 
 
 def findPerspectiveM(img_size):
@@ -253,25 +266,34 @@ class Line():
 
 def pipeline(img):
 
-    print('process..')
-
     global pipeline_args
     mtx = pipeline_args["mtx"]
     dist = pipeline_args["dist"]
     M = pipeline_args["M"]
     Minv = pipeline_args["Minv"]
 
-    img = undistort(img, mtx, dist)
+    undistorted = undistort(img, mtx, dist)
 
     thresh_min = 18
     thresh_max = 100
     s_thresh_min = 170
     s_thresh_max = 255
-    binary_warped = threshold_warp(img, M, thresh_min, thresh_max, s_thresh_min, s_thresh_max)
+    thresholded = threshold(undistorted, thresh_min, thresh_max, s_thresh_min, s_thresh_max)
+
+    binary_warped = warp(thresholded, M)
 
     left_fitx, right_fitx, ploty = search_lane(binary_warped)
-    return reverse_project(left_fitx, right_fitx, ploty, Minv, binary_warped, img)
 
+    left_curvature, right_curvature = calculateCurvature(left_fitx, right_fitx, ploty)
+
+    projected =  map_lane(left_fitx, right_fitx, ploty, Minv, binary_warped, undistorted)
+
+    tx = 100
+    ty = 100
+    text = "Left Curvature:{.2f}m Right Curvature:{.2f}".format(left_curvature, right_curvature)
+    final = cv2.putText(projected, text, (tx,ty), cv2.FONT_HERSHEY_SIMPLEX, 2, 255)
+
+    return final
 
 pipeline_args = dict()
 
