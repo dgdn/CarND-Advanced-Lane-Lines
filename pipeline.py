@@ -153,7 +153,7 @@ def search_lane(binary_warped):
     left_fitx = left_fit[0]*ploty**2 + left_fit[1]*ploty + left_fit[2]
     right_fitx = right_fit[0]*ploty**2 + right_fit[1]*ploty + right_fit[2]
 
-    return left_fitx, right_fitx, ploty
+    return left_fitx, right_fitx, ploty, left_fit, right_fit
 
 def fast_search_lane(binary_warped, left_fit, right_fit):
     # Assume you now have a new warped binary image 
@@ -184,7 +184,7 @@ def fast_search_lane(binary_warped, left_fit, right_fit):
     left_fitx = left_fit[0]*ploty**2 + left_fit[1]*ploty + left_fit[2]
     right_fitx = right_fit[0]*ploty**2 + right_fit[1]*ploty + right_fit[2]
 
-    return left_fitx, right_fitx, ploty
+    return left_fitx, right_fitx, ploty, left_fit, right_fit
 
 
 def map_lane(left_fitx, right_fitx, ploty, Minv, binary_warped, img):
@@ -293,10 +293,35 @@ def pipeline(img):
     s_thresh_min, s_thresh_max  = 170, 255
     thresholded = threshold(undistorted, thresh_min, thresh_max, s_thresh_min, s_thresh_max)
 
+    # Rectify lane to bird eye view
     binary_warped = warp(thresholded, M)
 
-    # Search lane and fit
-    left_fitx, right_fitx, ploty = search_lane(binary_warped)
+    if not "left_fit" in pipeline_args:
+        left_fitx, right_fitx, ploty, cur_left_fit, cur_right_fit = search_lane(binary_warped)
+        left_fit, right_fit = cur_left_fit, cur_right_fit
+    else:
+        # Extract the last fit from cache
+        left_fit = pipeline_args["left_fit"]
+        right_fit = pipeline_args["right_fit"]
+        if is_find_fit(left_fit) and is_find_fit(right_fit):
+            # If the line have been detected in previous frame
+            # just search the pixel around the line
+            left_fitx, right_fitx, ploty, cur_left_fit, cur_right_fit = fast_search_lane(binary_warped, left_fit, right_fit)
+        else:
+            # Search lane and fit using window search method
+            left_fitx, right_fitx, ploty, cur_left_fit, cur_right_fit = search_lane(binary_warped)
+    
+    # Apply weighted average 
+    beta = 0.9
+    left_fix = beta * left_fit + (1-beta)*cur_left_fit
+    right_fix = beta * right_fit + (1-beta)*cur_right_fit
+
+    # Save current fit for next frame
+    pipeline_args["left_fit"] = left_fit
+    pipeline_args["right_fit"] = right_fit
+
+    left_fitx = left_fit[0]*ploty**2 + left_fit[1]*ploty + left_fit[2]
+    right_fitx = right_fit[0]*ploty**2 + right_fit[1]*ploty + right_fit[2]
 
     # Define conversions in x and y from pixels space to meters
     ym_per_pix = 30/720 # meters per pixel in y dimension
@@ -311,6 +336,14 @@ def pipeline(img):
     final_result = cv2.putText(projected, text, (tx,ty), cv2.FONT_HERSHEY_SIMPLEX, 1, 255, 3)
 
     return final_result
+
+# If all the coefficents of the fit is zero, we can safely say that find no lane 
+def is_find_fit(fit):
+    if fit == None:
+        return False
+    if fit[0] == 0 and fit[1] == 0 and fit[2] ==0:
+        return False
+    return True
 
 pipeline_args = dict()
 
