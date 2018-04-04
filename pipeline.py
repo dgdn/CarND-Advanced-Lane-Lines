@@ -297,7 +297,7 @@ def pipeline(img):
     binary_warped = warp(thresholded, M)
 
     if not "left_fit" in pipeline_args:
-        left_fitx, right_fitx, ploty, cur_left_fit, cur_right_fit = search_lane(binary_warped)
+        _, _, ploty, cur_left_fit, cur_right_fit = search_lane(binary_warped)
         left_fit, right_fit = cur_left_fit, cur_right_fit
     else:
         # Extract the last fit from cache
@@ -306,15 +306,16 @@ def pipeline(img):
         if is_find_fit(left_fit) and is_find_fit(right_fit):
             # If the line have been detected in previous frame
             # just search the pixel around the line
-            left_fitx, right_fitx, ploty, cur_left_fit, cur_right_fit = fast_search_lane(binary_warped, left_fit, right_fit)
+            _, _, ploty, cur_left_fit, cur_right_fit = fast_search_lane(binary_warped, left_fit, right_fit)
         else:
             # Search lane and fit using window search method
-            left_fitx, right_fitx, ploty, cur_left_fit, cur_right_fit = search_lane(binary_warped)
+            _, _, ploty, cur_left_fit, cur_right_fit = search_lane(binary_warped)
     
-    # Apply weighted average 
+    # Apply exponential weighted average 
+    # in other word, this calculation will consider the previous fit
     beta = 0.9
-    left_fix = beta * left_fit + (1-beta)*cur_left_fit
-    right_fix = beta * right_fit + (1-beta)*cur_right_fit
+    left_fit = beta * left_fit + (1-beta) * cur_left_fit
+    right_fit = beta * right_fit + (1-beta) * cur_right_fit
 
     # Save current fit for next frame
     pipeline_args["left_fit"] = left_fit
@@ -339,8 +340,6 @@ def pipeline(img):
 
 # If all the coefficents of the fit is zero, we can safely say that find no lane 
 def is_find_fit(fit):
-    if fit == None:
-        return False
     if fit[0] == 0 and fit[1] == 0 and fit[2] ==0:
         return False
     return True
