@@ -46,7 +46,7 @@ I then used the output `objpoints` and `imgpoints` to compute the camera calibra
 
 #### 1. Apply distortion correction
 
-I applied distortion correction to the image using the `cv2.undistort()` function which takes in the camera matrix and distortion coeffcients. Here are the two images that demonstrate the distortion correction effect, the left is the original image and the right is the undistorted image.
+I applied distortion correction to the image using the `cv2.undistort()` function which takes in the camera matrix and distortion coeffcients. Here are the two images that demonstrate the distortion correction effect, the first one is the original image and the second one is the undistorted image.
 
 ![alt text][image20] ![alt text][image21]
 
