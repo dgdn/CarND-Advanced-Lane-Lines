@@ -19,7 +19,7 @@ The steps of this project are the following:
 
 [image1]: ./examples/undistort_output.png "Undistorted"
 [image20]: ./test_images/test3.jpg "Road Transformed"
-[image21]: ./output_images/undistort.png "Undistorted"
+[image21]: ./output_images/undistort.jpg "Undistorted"
 [image3]: ./output_images/threshold.jpg "Binary Example"
 [image4]: ./output_images/warp.jpg "Warp Example"
 [image5]: ./examples/color_fit_lines.jpg "Fit Visual"
