@@ -17,8 +17,9 @@ The steps of this project are the following:
 
 [//]: # (Image References)
 
-[image1]: ./output_images/undistort.png "Undistorted"
-[image2]: ./test_images/test3.jpg "Road Transformed"
+[image1]: ./examples/undistort_output.png "Undistorted"
+[image20]: ./test_images/test3.jpg "Road Transformed"
+[image21]: ./output_images/undistort.png "Undistorted"
 [image3]: ./output_images/threshold.jpg "Binary Example"
 [image4]: ./output_images/warp.jpg "Warp Example"
 [image5]: ./examples/color_fit_lines.jpg "Fit Visual"
@@ -47,7 +48,7 @@ I then used the output `objpoints` and `imgpoints` to compute the camera calibra
 
 I applied distortion correction to the image using the `cv2.undistort()` function which takes in the camera matrix and distortion coeffcients. Here are the two images that demonstrate the distortion correction effect, the left is the original image and the right is the undistorted image.
 
-![alt text][image2]
+![alt text][image20] ![alt text][image21]
 
 #### 2. Use color transforms, gradients to create a thresholded binary image
 
@@ -95,7 +96,7 @@ Here is image demonstrate the detected lane pixels and the fitted line:
 
 #### 5. Calculated the radius of curvature of the lane and the position of the vehicle with respect to center
 
-Now we have obtained the line of lane in the pixel world. In order to calculate the radius of curvature in real world space, we should first figure out the conversion between these two space based on datas measured on real road. Using the conversion between meter and pixel, we transformed the lane points in pixel space to world space. Then we fitted the world space poinits to get the line measured in meter. Finally We used these two lines to calculate the radius of curvature using the known curve formula. I implemented did this in a function called `calculate_curvature()`, which appears in lines 208 through 224.
+Now we have obtained the line of lane in the pixel world. In order to calculate the radius of curvature in real world space, we should first figure out the conversion between these two space based on datas measured on real road. Using the conversion between meter and pixel, we transformed the lane points in pixel space to world space. Then we fitted the world space poinits to get the line measured in meter. Finally We used these two lines to calculate the radius of curvature using the known curve formula. I implemented did this in a function called `calculate_curvature()`, which appears in lines 208 through 224. In the below image, we can see that the radius of curvature is `1136.6m` and the vehicle is `0.09m` left of center.
 
 #### 6. Warp the detected lane boundaries back onto the original image
 
