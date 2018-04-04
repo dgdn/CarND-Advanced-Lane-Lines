@@ -7,7 +7,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 from moviepy.editor import VideoFileClip
 
-def calibrateCamera(nx, ny, img_path, img_size):
+def calibrate_camera(nx, ny, img_path, img_size):
     # prepare object points, like (0,0,0), (1,0,0), (2,0,0) ....,(6,9,0)
     objp = np.zeros((nx*ny,3), np.float32)
     objp[:,:2] = np.mgrid[0:ny,0:nx].T.reshape(-1,2)
@@ -205,14 +205,10 @@ def map_lane(left_fitx, right_fitx, ploty, Minv, binary_warped, img):
     # Combine the result with the original image
     return cv2.addWeighted(img, 1, newwarp, 0.3, 0)
 
-def calculateCurvature(left_fitx, right_fitx, ploty):
+def calculate_curvature(left_fitx, right_fitx, ploty, ym_per_pix, xm_per_pix):
     # Define y-value where we want radius of curvature
     # I'll choose the maximum y-value, corresponding to the bottom of the image
     y_eval = np.max(ploty)
-
-    # Define conversions in x and y from pixels space to meters
-    ym_per_pix = 30/720 # meters per pixel in y dimension
-    xm_per_pix = 3.7/700 # meters per pixel in x dimension
 
     # Fit new polynomials to x,y in world space
     left_fit_cr = np.polyfit(ploty*ym_per_pix, left_fitx*xm_per_pix, 2)
@@ -223,8 +219,22 @@ def calculateCurvature(left_fitx, right_fitx, ploty):
     # Now our radius of curvature is in meters
     return left_curverad, right_curverad
 
+def calculate_vehicle_position_offset(left_fitx, right_fitx, xm_per_pix, img_width):
 
-def findPerspectiveM(img_size):
+    # Define the bottom of the line be the lane position
+    lane_left_position, lane_right_position = left_fitx[-1], right_fitx[-1]
+    # Calculate the middle position of the lane
+    lane_mid_position = (lane_left_position + lane_right_position)/2
+    # Vehicle position always located in the middle of the image
+    vehicle_position = img_width / 2
+    # Calculate the vehicle offset to position of the middle of lane
+    offset_pixel =  vehicle_position - lane_mid_position
+    # Convert to meters space from pixel space
+    offset_meter = offset_pixel * xm_per_pix
+    return offset_meter
+
+
+def find_perspective_matrix(img_size):
     # Important!! size is (w, h)  img_size is (h, w)
     size = img_size[::-1]
     src = np.float32(
@@ -267,80 +277,73 @@ class Line():
 def pipeline(img):
 
     global pipeline_args
+
+    # Extract the camera matrix and perspective matrix
     mtx = pipeline_args["mtx"]
     dist = pipeline_args["dist"]
     M = pipeline_args["M"]
     Minv = pipeline_args["Minv"]
+    img_size = pipeline_args["img_size"]
 
+    # Apply ditortion correction
     undistorted = undistort(img, mtx, dist)
 
-    thresh_min = 18
-    thresh_max = 100
-    s_thresh_min = 170
-    s_thresh_max = 255
+    # Apply threshold 
+    thresh_min, thresh_max = 18, 100
+    s_thresh_min, s_thresh_max  = 170, 255
     thresholded = threshold(undistorted, thresh_min, thresh_max, s_thresh_min, s_thresh_max)
 
     binary_warped = warp(thresholded, M)
 
+    # Search lane and fit
     left_fitx, right_fitx, ploty = search_lane(binary_warped)
 
-    left_curvature, right_curvature = calculateCurvature(left_fitx, right_fitx, ploty)
-
+    # Define conversions in x and y from pixels space to meters
+    ym_per_pix = 30/720 # meters per pixel in y dimension
+    xm_per_pix = 3.7/700 # meters per pixel in x dimension
+    left_curvature, right_curvature = calculate_curvature(left_fitx, right_fitx, ploty, ym_per_pix, xm_per_pix)
+    vehicle_offset = calculate_vehicle_position_offset(left_fitx, right_fitx, xm_per_pix, img_size[1])
     projected =  map_lane(left_fitx, right_fitx, ploty, Minv, binary_warped, undistorted)
 
-    tx = 50
-    ty = 50
-    text = "Left Curvature:{:5.1f}m Right Curvature:{:5.1f}m".format(left_curvature, right_curvature)
-    final = cv2.putText(projected, text, (tx,ty), cv2.FONT_HERSHEY_SIMPLEX, 1, 255, 3)
+    # Draw data on the image
+    tx, ty = 50, 50
+    text = "Radius of Curvature = {:5.1f}(m) Vehicle offset = {:.2f}m".format((left_curvature+right_curvature)/2, vehicle_offset)
+    final_result = cv2.putText(projected, text, (tx,ty), cv2.FONT_HERSHEY_SIMPLEX, 1, 255, 3)
 
-    return final
+    return final_result
 
 pipeline_args = dict()
 
 def main():
+
+    # Define the image size
     img_size = (720, 1280)
 
+    # Calibrate the camera and save parameters if this is the first time or just load it
     if os.path.isfile('calibrate.pickle'):
         data = pickle.load(open('calibrate.pickle', 'rb'))
         mtx = data['mtx']
         dist = data['dist']
     else:
-        mtx, dist = calibrateCamera(6, 9, 'camera_cal', img_size)
+        mtx, dist = calibrate_camera(6, 9, 'camera_cal', img_size)
         pickle.dump({"mtx": mtx, "dist": dist}, open('calibrate.pickle', 'wb'))
 
-    M, Minv = findPerspectiveM(img_size)
+    # Calculate the perspective matrix
+    M, Minv = find_perspective_matrix(img_size)
 
+    # Cache the pipline args for future reuse
     pipeline_args["mtx"] = mtx
     pipeline_args["dist"] = dist
     pipeline_args["M"] = M
     pipeline_args["Minv"] = Minv
+    pipeline_args["img_size"] = img_size
 
+    # Process the video stream using the provided pipline
     easy_output = 'project_video_output.mp4'
     clip1 = VideoFileClip('project_video.mp4')
     easy_clip = clip1.fl_image(pipeline)
     easy_clip.write_videofile(easy_output, audio=False)
 
-def test():
-    img_size = (720, 1280)
-    if os.path.isfile('calibrate.pickle'):
-        data = pickle.load(open('calibrate.pickle', 'rb'))
-        mtx = data['mtx']
-        dist = data['dist']
-    else:
-        mtx, dist = calibrateCamera(6, 9, 'camera_cal', img_size)
-        pickle.dump({"mtx": mtx, "dist": dist}, open('calibrate.pickle', 'wb'))
-
-    M, Minv = findPerspectiveM(img_size)
-    pipeline_args["mtx"] = mtx
-    pipeline_args["dist"] = dist
-    pipeline_args["M"] = M
-    pipeline_args["Minv"] = Minv
-
-    img = cv2.imread('test_images/test3.jpg') 
-    result = pipeline(img)
-    plt.imshow(result[:,:,::-1])
-    plt.show()
-
 
 if __name__ == "__main__":
-    main()
+    sample_output()
